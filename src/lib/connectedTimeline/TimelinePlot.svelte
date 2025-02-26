@@ -1,8 +1,8 @@
+<!-- @ts-nocheck -->
 <script>
   import { line, curveCatmullRom } from "d3";
   import { cubicOut } from "svelte/easing";
   import { Tween } from "svelte/motion";
-  import { fade } from "svelte/transition";
 
   let { data, xScale, yScale, xKey, yKey, widthKey, barHeight = 10 } = $props();
   let isDistributed = $state(false);
@@ -68,6 +68,7 @@
       };
     })
   );
+
   // Create tweens for each connection
   let connectionTweens = $state([]);
 
@@ -77,7 +78,7 @@
     if (connectionTweens.length !== connections.length) {
       connectionTweens = connections.map((conn) => {
         return new Tween(conn.currentPoints, {
-          duration: 800,
+          duration: 1250,
           easing: cubicOut,
         });
       });
@@ -159,7 +160,11 @@
   }
 </script>
 
-<button onclick={handleTransition}>
+<button
+  onclick={handleTransition}
+  type="button"
+  class="rounded-md bg-white px-3.5 py-2.5 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+>
   {isDistributed ? "Center" : "Distribute"}
 </button>
 <svg class="w-full h-full">
