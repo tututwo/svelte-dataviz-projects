@@ -6,6 +6,20 @@
 
   let { data, xScale, yScale, xKey, yKey, widthKey, barHeight = 10 } = $props();
   let isDistributed = $state(false);
+  
+  // Animation duration for all animations
+  const ANIMATION_DURATION = 800;
+  
+  /**
+   * This component uses Svelte 5's Tween class for animations:
+   * 1. Path morphing: Animates the connecting paths between bars when toggling between distributed and centered views
+   * 2. Rectangle positioning: Animates the vertical movement of rectangles
+   * 
+   * The Tween approach is preferred over transitions in Svelte 5 for this use case because:
+   * - It provides more control over the animation
+   * - It works well for elements that remain in the DOM (not being added/removed)
+   * - It allows for custom interpolation between different data structures (like points arrays)
+   */
 
   let connectionLine = $derived(
     line()
@@ -71,23 +85,61 @@
 
   // Create tweens for each connection
   let connectionTweens = $state([]);
+  
+  // Create tweens for rectangle positions
+  let rectPositionTweens = $state([]);
 
-  // Initialize tweens when connections change
-  $effect(() => {
-    // Create a tween for each connection if it doesn't exist
-    if (connectionTweens.length !== connections.length) {
-      connectionTweens = connections.map((conn) => {
-        return new Tween(conn.currentPoints, {
-          duration: 1250,
-          easing: cubicOut,
-        });
+  // Instead of creating new Tween instances every time, reuse existing ones
+$effect(() => {
+  // Adjust the length of the connectionTweens array if needed
+  if (connectionTweens.length > connections.length) {
+    // Remove excess tweens
+    connectionTweens = connectionTweens.slice(0, connections.length);
+  } else if (connectionTweens.length < connections.length) {
+    // Add new tweens for new connections
+    const newTweens = connections.slice(connectionTweens.length).map(conn => {
+      return new Tween(conn.currentPoints, {
+        duration: ANIMATION_DURATION,
+        easing: cubicOut,
       });
+    });
+    connectionTweens = [...connectionTweens, ...newTweens];
+  }
+  
+  // Update existing tweens with new values
+  connections.forEach((conn, i) => {
+    if (connectionTweens[i]) {
+      connectionTweens[i].set(isDistributed ? conn.distributedPoints : conn.centeredPoints);
     }
   });
+});
 
-  // Update tweens when isDistributed changes
+// Similar approach for rectPositionTweens
+$effect(() => {
+  // Adjust the length of the rectPositionTweens array if needed
+  if (rectPositionTweens.length > data.length) {
+    // Remove excess tweens
+    rectPositionTweens = rectPositionTweens.slice(0, data.length);
+  } else if (rectPositionTweens.length < data.length) {
+    // Add new tweens for new data points
+    const centerY = yScale.range()[0] / 2;
+    const newTweens = data.slice(rectPositionTweens.length).map(shot => {
+      const distributedY = yScale(shot[yKey]);
+      return new Tween(
+        isDistributed ? distributedY : centerY, 
+        {
+          duration: ANIMATION_DURATION,
+          easing: cubicOut,
+        }
+      );
+    });
+    rectPositionTweens = [...rectPositionTweens, ...newTweens];
+  }
+});
+
+  // Update connection tweens when isDistributed changes
   $effect(() => {
-    // Update each tween's target
+    // Update each connection tween's target
     connectionTweens.forEach((tween, i) => {
       const conn = connections[i];
       const targetPoints = isDistributed
@@ -107,6 +159,15 @@
         tween.set(targetPoints);
       }
     });
+    
+    // Update each rectangle position tween
+    rectPositionTweens.forEach((tween, i) => {
+      const shot = data[i];
+      const centerY = yScale.range()[0] / 2;
+      const distributedY = yScale(shot[yKey]);
+      
+      tween.set(isDistributed ? distributedY : centerY);
+    });
   });
   function getColor(scaledValue) {
     if (scaledValue < yScale.range()[0] / 3) return "#fd9226";
@@ -116,16 +177,6 @@
 
   function handleTransition() {
     isDistributed = !isDistributed;
-  }
-
-  function verticalMove(node, { from, to }) {
-    const dy = from - to;
-
-    return {
-      duration: 800,
-      easing: cubicOut,
-      css: (t, u) => `transform: translateY(${u * dy}px)`,
-    };
   }
 
   // Function to normalize points arrays to have the same length
@@ -180,31 +231,14 @@
       />
     {/each}
 
-    <!-- Draw the bars on top -->
-    {#each data as shot (shot[xKey])}
-      <!-- Use a unique key for proper transitions -->
-      {#if isDistributed}
+    <!-- Draw the bars on top using tweened positions -->
+    {#each data as shot, i (shot[xKey])}
+      {#if rectPositionTweens[i]}
         <rect
-          transition:verticalMove={{
-            from: yScale.range()[0] / 2, // Start from center
-            to: yScale(shot[yKey]), // Move to final position
-          }}
           width={xScale(shot[widthKey]) - 2}
           height={barHeight}
           x={xScale(shot[xKey])}
-          y={yScale(shot[yKey])}
-          fill={getColor(yScale(shot[yKey]))}
-        />
-      {:else}
-        <rect
-          transition:verticalMove={{
-            from: yScale(shot[yKey]), // Start from current position
-            to: yScale.range()[0] / 2, // Move to center
-          }}
-          width={xScale(shot[widthKey]) - 2}
-          height={barHeight}
-          x={xScale(shot[xKey])}
-          y={yScale.range()[0] / 2}
+          y={rectPositionTweens[i].current}
           fill={getColor(yScale(shot[yKey]))}
         />
       {/if}
